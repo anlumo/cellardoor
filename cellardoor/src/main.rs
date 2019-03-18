@@ -9,7 +9,6 @@ use {
         // implementation of the the Hyper `Service` trait, which is an
         // asynchronous function from a generic `Request` to a `Response`.
         service::service_fn,
-        server::conn::AddrStream,
 
         header::{HeaderValue, UPGRADE, CONTENT_TYPE, CONNECTION, SEC_WEBSOCKET_VERSION, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_ACCEPT},
         upgrade::Upgraded,
@@ -19,7 +18,8 @@ use {
         // `FutureExt` adds methods that work for all futures, whereas
         // `TryFutureExt` adds methods to futures that return `Result` types.
         future::{FutureExt, TryFutureExt},
-        stream::{Stream, StreamExt},
+        stream::StreamExt,
+        compat::Stream01CompatExt,
     },
     std::net::SocketAddr,
 
@@ -46,7 +46,8 @@ mod byte_stream;
 const STATIC_FILES: &'static str = "/www";
 const WEBSOCKET_MAGIC: &'static str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-async fn serve_ws(mut framed: Framed<Upgraded, MessageCodec<OwnedMessage>>) {
+async fn serve_ws(framed: Framed<Upgraded, MessageCodec<OwnedMessage>>) {
+    let mut framed = framed.compat();
     while let (Some(message), new_framed) = await!(framed.into_future()) {
         debug!("Received message: {:?}", message);
         framed = new_framed;
