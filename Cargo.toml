@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "cellardoor",
+    "calendar",
+    "redissocket",
+    "ibuttons",
+]

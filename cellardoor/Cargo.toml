@@ -1,0 +1,15 @@
+[package]
+name = "cellardoor"
+version = "0.1.0"
+authors = ["Andreas Monitzer <andreas@monitzer.com>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+log = "0.4"
+env_logger="0.6"
+futures-preview = { version = "0.3.0-alpha.13", features = ["compat"] }
+tokio = {version = "0.1", features = ["async-await-preview"]}
+tokio-io = "0.1"
+hyper = "0.12"
+mime_guess = "1.8"
