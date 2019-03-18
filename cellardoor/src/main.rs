@@ -19,7 +19,7 @@ use {
         // `TryFutureExt` adds methods to futures that return `Result` types.
         future::{FutureExt, TryFutureExt},
         stream::StreamExt,
-        compat::Stream01CompatExt,
+        compat::{Stream01CompatExt, Future01CompatExt},
     },
     std::net::SocketAddr,
 
@@ -27,7 +27,6 @@ use {
         // This is the redefinition of the await! macro which supports both
         // futures 0.1 (used by Hyper and Tokio) and futures 0.3 (the new API
         // exposed by `std::future` and implemented by `async fn` syntax).
-        await,
         fs::file::File,
         codec::{Decoder, Framed},
     },
@@ -48,9 +47,8 @@ const WEBSOCKET_MAGIC: &'static str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 async fn serve_ws(framed: Framed<Upgraded, MessageCodec<OwnedMessage>>) {
     let mut framed = framed.compat();
-    while let (Some(message), new_framed) = await!(framed.into_future()) {
+    while let Some(message) = await!(framed.next()) {
         debug!("Received message: {:?}", message);
-        framed = new_framed;
     }
 }
 
@@ -67,13 +65,14 @@ async fn serve_req(req: Request<Body>, mut root: PathBuf) -> Result<Response<Bod
                     hash.update(WEBSOCKET_MAGIC.as_bytes());
                     let accept_str = base64::encode(&hash.digest().bytes());
 
-                    tokio::spawn_async(async move {
-                        if let Ok(upgraded) = await!(req.into_body().on_upgrade()) {
+                    tokio::spawn((async move {
+                        if let Ok(upgraded) = await!(req.into_body().on_upgrade().compat()) {
                             await!(serve_ws(MessageCodec::default(MsgCodecCtx::Server).framed(upgraded)));
                         } else {
                             error!("WebSocket upgrade failed.");
                         }
-                    });
+                        Ok(())
+                    }).boxed().compat());
 
                     Ok(Response::builder().status(StatusCode::SWITCHING_PROTOCOLS)
                         .header(UPGRADE, "websocket")
@@ -92,7 +91,7 @@ async fn serve_req(req: Request<Body>, mut root: PathBuf) -> Result<Response<Bod
             root.push(&filename[1..]); // remove leading /
             let extension = &(Path::new(filename).extension().and_then(|s| s.to_str()));
             debug!("Requesting file {:?}", root.to_str());
-            match await!(File::open(root.into_boxed_path())) {
+            match await!(File::open(root.into_boxed_path()).compat()) {
                 Ok(file) => {
                     let mut response = Response::builder();
                     if let Some(mimetype) = extension.and_then(|ref extension| get_mime_type_str(&extension)) {
@@ -111,7 +110,7 @@ async fn serve_req(req: Request<Body>, mut root: PathBuf) -> Result<Response<Bod
     }
 }
 
-async fn run_server(addr: SocketAddr) {
+async fn run_server(addr: SocketAddr) -> Result<(), hyper::error::Error> {
     info!("Listening on http://{}", addr);
 
     // Create a server bound on the provided address
@@ -128,8 +127,11 @@ async fn run_server(addr: SocketAddr) {
 
     // Wait for the server to complete serving or exit with an error.
     // If an error occurred, print it to stderr.
-    if let Err(e) = await!(serve_future) {
+    if let Err(e) = await!(serve_future.compat()) {
         error!("server error: {}", e);
+        Err(e)
+    } else {
+        Ok(())
     }
 }
 
@@ -138,5 +140,5 @@ fn main() {
 
     let addr = "127.0.0.1:8080".parse().unwrap();
 
-    tokio::run_async(run_server(addr));
+    tokio::run(run_server(addr).map_err(|e| { error!("{}", e); }).boxed().compat());
 }
